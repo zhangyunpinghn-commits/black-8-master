@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.pnpm-store/
+.sites-runtime/
+.chrome-qa/
+artifacts/
+*.log
+.DS_Store
