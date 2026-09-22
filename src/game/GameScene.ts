@@ -98,14 +98,26 @@ export class GameScene extends Phaser.Scene {
     const rail = theme === 'violet' ? 0x9f7aff : theme === 'azure' ? 0x39c8ff : 0x36f2c5;
     const g = this.tableGraphics.clear();
     g.fillStyle(0x071018, 1).fillRoundedRect(15, 15, 890, 470, 34);
+    g.lineStyle(2, 0xffffff, 0.1).strokeRoundedRect(17, 17, 886, 466, 32);
     g.lineStyle(5, rail, 0.72).strokeRoundedRect(25, 25, 870, 450, 27);
     g.fillStyle(0x13262c, 1).fillRoundedRect(38, 38, 844, 424, 23);
     g.fillStyle(cloth, 1).fillRoundedRect(TABLE.left, TABLE.top, TABLE.right - TABLE.left, TABLE.bottom - TABLE.top, 14);
+    g.lineStyle(2, 0xffffff, 0.13).strokeRoundedRect(TABLE.left, TABLE.top, TABLE.right - TABLE.left, TABLE.bottom - TABLE.top, 14);
+    g.lineStyle(1, 0x000000, 0.14).strokeRoundedRect(47, 47, 826, 406, 17);
     g.lineStyle(1, 0xffffff, 0.12).lineBetween(260, TABLE.top + 6, 260, TABLE.bottom - 6);
     g.fillStyle(0xffffff, 0.28).fillCircle(260, 250, 3);
+    for (const x of [160, 360, 560, 760]) {
+      g.fillStyle(0xe1fff7, 0.42).fillRoundedRect(x - 5, 42, 10, 3, 1);
+      g.fillRoundedRect(x - 5, 455, 10, 3, 1);
+    }
+    for (const y of [155, 345]) {
+      g.fillStyle(0xe1fff7, 0.42).fillRoundedRect(42, y - 5, 3, 10, 1);
+      g.fillRoundedRect(875, y - 5, 3, 10, 1);
+    }
     POCKETS.forEach((pocket) => {
+      g.fillStyle(0x9aa7a1, 0.43).fillCircle(pocket.x, pocket.y, 25);
       g.fillStyle(0x010508, 1).fillCircle(pocket.x, pocket.y, 22);
-      g.lineStyle(2, rail, 0.22).strokeCircle(pocket.x, pocket.y, 24);
+      g.lineStyle(2, rail, 0.33).strokeCircle(pocket.x, pocket.y, 24);
     });
   }
 
@@ -124,14 +136,15 @@ export class GameScene extends Phaser.Scene {
 
   private createBall(number: number, x: number, y: number) {
     const fill = number === 0 ? 0xf5fbff : number > 8 ? 0xf7f9fb : COLORS[number];
+    const shadow = this.add.circle(2, 3, BALL_RADIUS + 1, 0x001014, 0.38);
     const circle = this.add.circle(0, 0, BALL_RADIUS, fill).setStrokeStyle(number > 8 ? 6 : 1.5, number > 8 ? COLORS[number] : 0xffffff, number > 8 ? 1 : 0.36);
     const shine = this.add.circle(-4, -5, 3, 0xffffff, 0.42);
-    const children: Phaser.GameObjects.GameObject[] = [circle, shine];
+    const children: Phaser.GameObjects.GameObject[] = [shadow, circle, shine];
     if (number > 0) {
       children.push(this.add.text(0, 0, String(number), { fontFamily: 'Arial', fontSize: number > 9 ? '8px' : '9px', fontStyle: 'bold', color: number === 8 ? '#ffffff' : '#091015' }).setOrigin(0.5));
     }
     const view = this.add.container(x, y, children).setDepth(4);
-    this.matter.add.gameObject(view, { shape: { type: 'circle', radius: BALL_RADIUS }, restitution: 0.94, friction: 0.004, frictionAir: 0.014, density: 0.002 });
+    this.matter.add.gameObject(view, { shape: { type: 'circle', radius: BALL_RADIUS }, restitution: 0.94, friction: 0.004, frictionAir: 0.023, density: 0.002 });
     const body = view.body as MatterJS.BodyType;
     body.label = `ball-${number}`;
     this.balls.push({ number, view, body, active: true });
@@ -185,7 +198,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPointerDown(pointer: Phaser.Input.Pointer) {
-    if (!this.canHumanAim() || !this.state.ballInHand) return;
+    if (!this.canHumanAim()) return;
+    if (!this.state.ballInHand) {
+      this.onPointerMove(pointer);
+      return;
+    }
     const x = Phaser.Math.Clamp(pointer.worldX, TABLE.left + BALL_RADIUS + 5, TABLE.right - BALL_RADIUS - 5);
     const y = Phaser.Math.Clamp(pointer.worldY, TABLE.top + BALL_RADIUS + 5, TABLE.bottom - BALL_RADIUS - 5);
     const clear = this.balls.every((ball) => !ball.active || ball.number === 0 || Math.hypot(ball.view.x - x, ball.view.y - y) > BALL_RADIUS * 2.2);
@@ -216,11 +233,12 @@ export class GameScene extends Phaser.Scene {
     this.stillFrames = 0;
     const speed = 17.5 * Math.max(0.12, Math.min(1, power));
     this.matter.body.setVelocity(cue.body, { x: Math.cos(angle) * speed, y: Math.sin(angle) * speed });
-    this.audio.play('hit', this.settings.sound);
-    if (this.settings.vibration && navigator.vibrate) navigator.vibrate(18);
     this.aimGraphics.clear();
     this.cueGraphics.clear();
     this.syncUi();
+    gameBus.dispatchEvent(new Event('game:shot-fired'));
+    this.audio.play('hit', this.settings.sound);
+    if (this.settings.vibration && navigator.vibrate) navigator.vibrate(18);
   }
 
   private drawAim() {
@@ -338,7 +356,7 @@ export class GameScene extends Phaser.Scene {
       const group = this.state.players[player].group;
       remaining[player] = group ? this.balls.filter((ball) => ball.active && ((group === 'solid' && ball.number >= 1 && ball.number <= 7) || (group === 'stripe' && ball.number >= 9))).length : 7;
     }
-    const detail: UiState = { game: structuredClone(this.state), power: this.power, angle: this.aimAngle, remaining, paused: this.paused };
+    const detail: UiState = { game: this.state, power: this.power, angle: this.aimAngle, remaining, paused: this.paused };
     gameBus.dispatchEvent(new CustomEvent('game:update', { detail }));
   }
 }

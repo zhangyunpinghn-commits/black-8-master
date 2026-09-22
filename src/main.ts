@@ -15,12 +15,13 @@ interface UiUpdate {
 
 let settings = loadSettings();
 
-const icon = (name: 'settings' | 'pause' | 'restart' | 'close') => {
+const icon = (name: 'settings' | 'pause' | 'restart' | 'close' | 'fullscreen') => {
   const paths = {
     settings: '<path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06-2.83 2.83-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21h-4v-.17a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06-2.83-2.83.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3v-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06L7.04 4.3l.06.06a1.65 1.65 0 0 0 1.82.33h.16a1.65 1.65 0 0 0 1-1.51V3h4v.17a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06 2.83 2.83-.06.06A1.65 1.65 0 0 0 19.4 9v.08a1.65 1.65 0 0 0 1.51 1H21v4h-.09a1.65 1.65 0 0 0-1.51.92Z"/>',
     pause: '<path d="M8 5v14M16 5v14"/>',
     restart: '<path d="M20 11a8 8 0 1 0-2.34 5.66M20 4v7h-7"/>',
-    close: '<path d="m6 6 12 12M18 6 6 18"/>'
+    close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    fullscreen: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M3 16v5h5"/>'
   };
   return `<svg aria-hidden="true" viewBox="0 0 24 24">${paths[name]}</svg>`;
 };
@@ -35,6 +36,7 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
         <div class="player" data-player="ai"><span>电脑</span><b id="ai-group">未分组</b><i id="ai-left">7</i></div>
       </div>
       <div class="top-actions">
+        <button class="icon-button" id="fullscreen-button" aria-label="进入全屏">${icon('fullscreen')}</button>
         <button class="icon-button" id="pause-button" aria-label="暂停游戏">${icon('pause')}</button>
         <button class="icon-button" id="settings-button" aria-label="打开设置">${icon('settings')}</button>
       </div>
@@ -54,6 +56,8 @@ document.querySelector<HTMLDivElement>('#app')!.innerHTML = `
     </section>
     <footer><span>滑动球桌调整方向</span><i></i><span>设置力度</span><i></i><span>点击击球确认</span></footer>
   </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <div class="rotate"><span class="rotate-phone">↻</span><span class="rotate-ball">8</span><h1>请横屏游戏</h1><p>旋转手机，获得完整球桌视野</p></div>
 
@@ -89,6 +93,34 @@ const settingsModal = $('#settings-modal');
 const pauseModal = $('#pause-modal');
 const gameOverModal = $('#game-over-modal');
 const powerInput = $<HTMLInputElement>('#power');
+let toastTimer = 0;
+
+function showToast(message: string) {
+  const toast = $('#toast');
+  toast.textContent = message;
+  toast.hidden = false;
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3500);
+}
+
+$('#fullscreen-button').addEventListener('click', async () => {
+  if (document.fullscreenElement) {
+    await document.exitFullscreen();
+    return;
+  }
+  if (!document.documentElement.requestFullscreen) {
+    showToast('当前浏览器不支持网页全屏。iPhone 可用 Safari「分享 → 添加到主屏幕」后打开。');
+    return;
+  }
+  try {
+    await document.documentElement.requestFullscreen();
+  } catch {
+    showToast('无法进入全屏；请使用手机浏览器打开，或将游戏添加到主屏幕。');
+  }
+});
+document.addEventListener('fullscreenchange', () => {
+  $('#fullscreen-button').setAttribute('aria-label', document.fullscreenElement ? '退出全屏' : '进入全屏');
+});
 
 function applySettingsUi() {
   document.body.dataset.background = settings.background;
@@ -148,8 +180,12 @@ gameBus.addEventListener('game:update', (event) => {
   $('#turn-message').textContent = update.game.message;
   $('#turn-dot').classList.toggle('ai', current === 'ai');
   $<HTMLButtonElement>('#shoot').disabled = current !== 'human' || update.game.turnState !== 'aiming' || update.paused;
+  $('#shoot span').textContent = update.game.turnState === 'rolling' ? '滚动中' : '击球';
+  $('.table-panel').classList.toggle('shot-active', update.game.turnState === 'rolling');
   pauseModal.hidden = !update.paused;
 });
+
+gameBus.addEventListener('game:shot-fired', () => showToast('已击球 · 等待球停稳结算'));
 
 gameBus.addEventListener('game:over', (event) => {
   const detail = (event as CustomEvent<{ winner: PlayerId; message: string }>).detail;
